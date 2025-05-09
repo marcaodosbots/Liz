@@ -1,12 +1,15 @@
 from fastapi import FastAPI
 from TikTokApi import TikTokApi
-import time
-import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
+import time
 
 app = FastAPI()
-api = TikTokApi()
 scheduler = AsyncIOScheduler()
+
+# Iniciar o navegador via Playwright
+api = TikTokApi.get_instance(use_test_endpoints=True)
+asyncio.get_event_loop().run_until_complete(api.create_sessions())
 
 # Usuários fixos
 USER1 = "lizx.macedo"
@@ -18,12 +21,10 @@ trackers = {
 
 async def poll_counts():
     try:
-        user1 = api.user(username=USER1)
-        user2 = api.user(username=USER2)
-        info1 = user1.info_full()
-        info2 = user2.info_full()
-        c1 = info1["userInfo"]["stats"]["followerCount"]
-        c2 = info2["userInfo"]["stats"]["followerCount"]
+        u1 = api.get_user(USER1)
+        u2 = api.get_user(USER2)
+        c1 = u1.stats['followerCount']
+        c2 = u2.stats['followerCount']
         diff = c1 - c2
         data = trackers[key]
         data['followers'] = {'user1': c1, 'user2': c2}
