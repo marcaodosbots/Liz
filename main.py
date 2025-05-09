@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI
 from TikTokApi import TikTokApi
 import time
@@ -6,7 +5,7 @@ import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 app = FastAPI()
-api = TikTokApi.get_instance()
+api = TikTokApi()
 scheduler = AsyncIOScheduler()
 
 # Usuários fixos
@@ -19,10 +18,12 @@ trackers = {
 
 async def poll_counts():
     try:
-        u1 = api.get_user(USER1)
-        u2 = api.get_user(USER2)
-        c1 = u1.stats.get('followerCount') if hasattr(u1, 'stats') else u1['stats']['followerCount']
-        c2 = u2.stats.get('followerCount') if hasattr(u2, 'stats') else u2['stats']['followerCount']
+        user1 = api.user(username=USER1)
+        user2 = api.user(username=USER2)
+        info1 = user1.info_full()
+        info2 = user2.info_full()
+        c1 = info1["userInfo"]["stats"]["followerCount"]
+        c2 = info2["userInfo"]["stats"]["followerCount"]
         diff = c1 - c2
         data = trackers[key]
         data['followers'] = {'user1': c1, 'user2': c2}
@@ -60,4 +61,3 @@ def compare():
         'average_rate_per_minute': avg_rate,
         'estimated_minutes_to_crossover': est_minutes
     }
-
