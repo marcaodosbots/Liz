@@ -1,6 +1,4 @@
-fastapi
-uvicorn
+Flask
+gunicorn
+TikTokApi
 apscheduler
-TikTokApi==5.2.2
-setuptools
-playwright
