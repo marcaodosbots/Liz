@@ -1,82 +1,80 @@
 from flask import Flask, jsonify
-from apscheduler.schedulers.background import BackgroundScheduler
 from TikTokApi import TikTokApi
-import threading
+from apscheduler.schedulers.background import BackgroundScheduler
 import time
+import threading
 
 app = Flask(__name__)
-api = TikTokApi.get_instance()
 
-# Substitua pelos usernames desejados
-USER1 = 'lizx.macedo'
-USER2 = 'euantonelabraga'
-
-# Armazenamento dos dados históricos
-history = {
-    USER1: [],
-    USER2: []
+# Dados iniciais
+usernames = ["lizx.macedo", "euantonelabraga"]
+followers_history = {
+    "lizx.macedo": [],
+    "euantonelabraga": []
 }
-
 lock = threading.Lock()
 
-def fetch_followers(username):
-    try:
-        user = api.get_user(username)
-        return user.stats['followerCount']
-    except Exception as e:
-        print(f"Erro ao buscar dados de {username}: {e}")
-        return None
+def fetch_followers():
+    with TikTokApi() as api:
+        for username in usernames:
+            try:
+                user_info = api.user(username=username).info()
+                followers_count = user_info['stats']['followerCount']
+                timestamp = time.time()
+                with lock:
+                    followers_history[username].append((timestamp, followers_count))
+                    # Mantém apenas os últimos 10 registros (10 minutos)
+                    if len(followers_history[username]) > 10:
+                        followers_history[username].pop(0)
+            except Exception as e:
+                print(f"Erro ao buscar dados de {username}: {e}")
 
-def update_history():
+# Agenda a função para rodar a cada minuto
+scheduler = BackgroundScheduler()
+scheduler.add_job(fetch_followers, 'interval', minutes=1)
+scheduler.start()
+
+@app.route('/followers', methods=['GET'])
+def get_followers_data():
     with lock:
-        for user in [USER1, USER2]:
-            count = fetch_followers(user)
-            if count is not None:
-                history[user].append((time.time(), count))
-                # Mantém apenas os últimos 10 registros (10 minutos)
-                if len(history[user]) > 10:
-                    history[user].pop(0)
+        data = {}
+        for username in usernames:
+            if followers_history[username]:
+                data[username] = followers_history[username][-1][1]
+            else:
+                data[username] = None
 
-def calculate_projection():
-    with lock:
-        if len(history[USER1]) < 2 or len(history[USER2]) < 2:
-            return None  # Dados insuficientes
+        if None in data.values():
+            return jsonify({"error": "Dados insuficientes para calcular."}), 500
 
-        # Cálculo da taxa de ganho/perda por minuto
-        def rate(data):
-            times, counts = zip(*data)
-            delta_time = times[-1] - times[0]
-            delta_count = counts[-1] - counts[0]
-            return delta_count / (delta_time / 60)  # seguidores por minuto
+        diff = data[usernames[0]] - data[usernames[1]]
 
-        rate1 = rate(history[USER1])
-        rate2 = rate(history[USER2])
-        current_diff = history[USER1][-1][1] - history[USER2][-1][1]
-        rate_diff = rate2 - rate1
+        # Calcula a média de ganho/perda por minuto nos últimos 10 minutos
+        rates = {}
+        for username in usernames:
+            history = followers_history[username]
+            if len(history) >= 2:
+                deltas = [
+                    (history[i][1] - history[i - 1][1]) / ((history[i][0] - history[i - 1][0]) / 60)
+                    for i in range(1, len(history))
+                ]
+                rates[username] = sum(deltas) / len(deltas)
+            else:
+                rates[username] = 0
 
+        # Estima o tempo para o usuário 2 alcançar o usuário 1
+        rate_diff = rates[usernames[1]] - rates[usernames[0]]
         if rate_diff <= 0:
-            return None  # USER2 não está alcançando USER1
+            eta = None  # Nunca alcançará
+        else:
+            eta = diff / rate_diff  # em minutos
 
-        minutes_to_zero = current_diff / rate_diff
-        return minutes_to_zero
-
-@app.route('/status', methods=['GET'])
-def status():
-    with lock:
-        count1 = history[USER1][-1][1] if history[USER1] else None
-        count2 = history[USER2][-1][1] if history[USER2] else None
-        diff = count1 - count2 if count1 is not None and count2 is not None else None
-        projection = calculate_projection()
         return jsonify({
-            USER1: count1,
-            USER2: count2,
-            'difference': diff,
-            'minutes_to_overtake': projection
+            "followers": data,
+            "difference": diff,
+            "rates_per_minute": rates,
+            "estimated_minutes_to_overtake": eta
         })
 
 if __name__ == '__main__':
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_history, 'interval', minutes=1)
-    scheduler.start()
-    update_history()  # Inicializa com dados imediatos
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
