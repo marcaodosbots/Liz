@@ -1,4 +1,4 @@
 fastapi
 uvicorn
-TikTokApi
 apscheduler
+TikTokApi==5.3.0
